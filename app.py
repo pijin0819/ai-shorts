@@ -52,6 +52,7 @@ else:
         topic = ""
 
 lang = st.selectbox("출력 언어", ["한국어", "영어", "중국어(도우인용)"])
+
 voice_options = {
     "여성 - 기본 (Rachel)": "21m00Tcm4TlvDq8ikWAM",
     "여성 - 한국어 자연스러운 (Bella)": "EXAVITQu4vr4xnSDxMaL",
@@ -60,6 +61,16 @@ voice_options = {
 }
 selected_voice = st.selectbox("목소리 선택", list(voice_options.keys()))
 voice_id = voice_options[selected_voice]
+
+st.subheader("📋 배치 모드 (여러 주제 한번에)")
+batch_mode = st.checkbox("배치 모드 활성화")
+
+if batch_mode:
+    batch_topics = st.text_area("주제 목록 (한 줄에 하나씩)", "올리브영 추천템\n한국 여행 꿀팁\n다이소 추천 제품", height=150)
+    topics_list = [t.strip() for t in batch_topics.split("\n") if t.strip()]
+    st.info(f"총 {len(topics_list)}개 주제 감지됨")
+else:
+    topics_list = []
 
 def mute_and_merge(video_path, audio_path, out_path="output/merged.mp4"):
     cmd = [
@@ -76,16 +87,71 @@ def mute_and_merge(video_path, audio_path, out_path="output/merged.mp4"):
     return out_path
 
 if st.button("스크립트 생성"):
-    if not topic:
-        st.warning("주제 또는 URL을 입력해주세요!")
+    if batch_mode:
+        if not topics_list:
+            st.warning("주제를 입력해주세요!")
+        else:
+            for idx, t in enumerate(topics_list):
+                st.markdown(f"---\n### {idx+1}. {t}")
+                with st.spinner(f"[{idx+1}/{len(topics_list)}] 스크립트 생성 중..."):
+                    message = anthropic_client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=1000,
+                        messages=[{
+                            "role": "user",
+                            "content": f"""
+다음 주제로 {lang} 숏폼 영상 스크립트를 만들어줘.
+주제: {t}
+
+반드시 JSON 형식으로만 응답해. 다른 말은 하지 마:
+{{
+  "hook": "3초 안에 시선 잡는 첫 문장",
+  "body": ["포인트1", "포인트2", "포인트3"],
+  "cta": "팔로우/댓글 유도 마지막 문장"
+}}
+"""
+                        }]
+                    )
+                raw = message.content[0].text
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if match:
+                    result = json.loads(match.group())
+                    st.markdown(f"**훅:** {result['hook']}")
+                    for i, point in enumerate(result['body'], 1):
+                        st.markdown(f"**{i}.** {point}")
+                    st.markdown(f"**CTA:** {result['cta']}")
+
+                    full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
+
+                    with st.spinner(f"TTS 변환 중..."):
+                        audio = eleven_client.text_to_speech.convert(
+                            text=full_script,
+                            voice_id=voice_id,
+                            model_id="eleven_multilingual_v2"
+                        )
+                        audio_path = f"output/script_{idx+1}.mp3"
+                        save(audio, audio_path)
+
+                    st.audio(audio_path)
+                    with open(audio_path, "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ TTS {idx+1} 다운로드",
+                            data=f,
+                            file_name=f"tts_{idx+1}.mp3",
+                            mime="audio/mp3",
+                            key=f"dl_{idx}"
+                        )
     else:
-        with st.spinner("스크립트 생성 중..."):
-            message = anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1000,
-                messages=[{
-                    "role": "user",
-                    "content": f"""
+        if not topic:
+            st.warning("주제 또는 URL을 입력해주세요!")
+        else:
+            with st.spinner("스크립트 생성 중..."):
+                message = anthropic_client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    messages=[{
+                        "role": "user",
+                        "content": f"""
 다음 주제로 {lang} 숏폼 영상 스크립트를 만들어줘.
 주제: {topic}
 
@@ -96,45 +162,45 @@ if st.button("스크립트 생성"):
   "cta": "팔로우/댓글 유도 마지막 문장"
 }}
 """
-                }]
-            )
-
-        raw = message.content[0].text
-        match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if match:
-            result = json.loads(match.group())
-
-            st.success("스크립트 완료!")
-            st.markdown(f"**훅:** {result['hook']}")
-            for i, point in enumerate(result['body'], 1):
-                st.markdown(f"**{i}.** {point}")
-            st.markdown(f"**CTA:** {result['cta']}")
-
-            full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
-
-            with st.spinner("TTS 변환 중..."):
-                audio = eleven_client.text_to_speech.convert(
-                    text=full_script,
-                    voice_id=voice_id,
-                    model_id="eleven_multilingual_v2"
+                    }]
                 )
-                save(audio, "output/script.mp3")
 
-            st.success("TTS 완료!")
-            st.audio("output/script.mp3")
+            raw = message.content[0].text
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
 
-            if video_file:
-                with st.spinner("음성 합치는 중..."):
-                    mute_and_merge("output/original.mp4", "output/script.mp3")
-                    st.success("🎉 최종 영상 완성!")
+                st.success("스크립트 완료!")
+                st.markdown(f"**훅:** {result['hook']}")
+                for i, point in enumerate(result['body'], 1):
+                    st.markdown(f"**{i}.** {point}")
+                st.markdown(f"**CTA:** {result['cta']}")
 
-                with open("output/merged.mp4", "rb") as f:
-                    st.download_button(
-                        label="⬇️ 최종 영상 다운로드",
-                        data=f,
-                        file_name="shorts_final.mp4",
-                        mime="video/mp4"
+                full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
+
+                with st.spinner("TTS 변환 중..."):
+                    audio = eleven_client.text_to_speech.convert(
+                        text=full_script,
+                        voice_id=voice_id,
+                        model_id="eleven_multilingual_v2"
                     )
-        else:
-            st.warning("스크립트 생성 결과:")
-            st.write(raw)
+                    save(audio, "output/script.mp3")
+
+                st.success("TTS 완료!")
+                st.audio("output/script.mp3")
+
+                if video_file:
+                    with st.spinner("음성 합치는 중..."):
+                        mute_and_merge("output/original.mp4", "output/script.mp3")
+                        st.success("🎉 최종 영상 완성!")
+
+                    with open("output/merged.mp4", "rb") as f:
+                        st.download_button(
+                            label="⬇️ 최종 영상 다운로드",
+                            data=f,
+                            file_name="shorts_final.mp4",
+                            mime="video/mp4"
+                        )
+            else:
+                st.warning("스크립트 생성 결과:")
+                st.write(raw)
