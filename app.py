@@ -5,7 +5,8 @@ import re
 import trafilatura
 import subprocess
 import os
-from gtts import gTTS
+import asyncio
+import edge_tts
 
 anthropic_client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
@@ -51,7 +52,23 @@ else:
 
 lang = st.selectbox("출력 언어", ["한국어", "영어", "중국어(도우인용)"])
 
-lang_code = {"한국어": "ko", "영어": "en", "중국어(도우인용)": "zh"}
+voice_options = {
+    "한국어": {
+        "여성 - 자연스러운 (SunHi)": "ko-KR-SunHiNeural",
+        "남성 - 자연스러운 (InJoon)": "ko-KR-InJoonNeural",
+    },
+    "영어": {
+        "여성 - 자연스러운 (Jenny)": "en-US-JennyNeural",
+        "남성 - 자연스러운 (Guy)": "en-US-GuyNeural",
+    },
+    "중국어(도우인용)": {
+        "여성 - 자연스러운 (Xiaoxiao)": "zh-CN-XiaoxiaoNeural",
+        "남성 - 자연스러운 (Yunxi)": "zh-CN-YunxiNeural",
+    }
+}
+
+selected_voice = st.selectbox("목소리 선택", list(voice_options[lang].keys()))
+voice_id = voice_options[lang][selected_voice]
 
 st.subheader("📋 배치 모드 (여러 주제 한번에)")
 batch_mode = st.checkbox("배치 모드 활성화")
@@ -76,6 +93,13 @@ def mute_and_merge(video_path, audio_path, out_path="output/merged.mp4"):
     ]
     subprocess.run(cmd, check=True)
     return out_path
+
+async def text_to_speech(text, voice, output_path):
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
+
+def run_tts(text, voice, output_path):
+    asyncio.run(text_to_speech(text, voice, output_path))
 
 if st.button("스크립트 생성"):
     if batch_mode:
@@ -115,9 +139,8 @@ if st.button("스크립트 생성"):
                     full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
 
                     with st.spinner(f"TTS 변환 중..."):
-                        tts = gTTS(text=full_script, lang=lang_code[lang])
                         audio_path = f"output/script_{idx+1}.mp3"
-                        tts.save(audio_path)
+                        run_tts(full_script, voice_id, audio_path)
 
                     st.audio(audio_path)
                     with open(audio_path, "rb") as f:
@@ -166,8 +189,7 @@ if st.button("스크립트 생성"):
                 full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
 
                 with st.spinner("TTS 변환 중..."):
-                    tts = gTTS(text=full_script, lang=lang_code[lang])
-                    tts.save("output/script.mp3")
+                    run_tts(full_script, voice_id, "output/script.mp3")
 
                 st.success("TTS 완료!")
                 st.audio("output/script.mp3")
