@@ -5,11 +5,9 @@ import re
 import trafilatura
 import subprocess
 import os
-from elevenlabs.client import ElevenLabs
-from elevenlabs import save
+from gtts import gTTS
 
 anthropic_client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-eleven_client = ElevenLabs(api_key=st.secrets["ELEVENLABS_API_KEY"])
 
 os.makedirs("output", exist_ok=True)
 
@@ -53,14 +51,7 @@ else:
 
 lang = st.selectbox("출력 언어", ["한국어", "영어", "중국어(도우인용)"])
 
-voice_options = {
-    "여성 - 기본 (Rachel)": "21m00Tcm4TlvDq8ikWAM",
-    "여성 - 한국어 자연스러운 (Bella)": "EXAVITQu4vr4xnSDxMaL",
-    "남성 - 기본 (Josh)": "TxGEqnHWrfWFTfGW9XjX",
-    "남성 - 깊은 목소리 (Arnold)": "VR6AewLTigWG4xSOukaG",
-}
-selected_voice = st.selectbox("목소리 선택", list(voice_options.keys()))
-voice_id = voice_options[selected_voice]
+lang_code = {"한국어": "ko", "영어": "en", "중국어(도우인용)": "zh"}
 
 st.subheader("📋 배치 모드 (여러 주제 한번에)")
 batch_mode = st.checkbox("배치 모드 활성화")
@@ -124,13 +115,9 @@ if st.button("스크립트 생성"):
                     full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
 
                     with st.spinner(f"TTS 변환 중..."):
-                        audio = eleven_client.text_to_speech.convert(
-                            text=full_script,
-                            voice_id=voice_id,
-                            model_id="eleven_multilingual_v2"
-                        )
+                        tts = gTTS(text=full_script, lang=lang_code[lang])
                         audio_path = f"output/script_{idx+1}.mp3"
-                        save(audio, audio_path)
+                        tts.save(audio_path)
 
                     st.audio(audio_path)
                     with open(audio_path, "rb") as f:
@@ -179,12 +166,8 @@ if st.button("스크립트 생성"):
                 full_script = result['hook'] + " " + " ".join(result['body']) + " " + result['cta']
 
                 with st.spinner("TTS 변환 중..."):
-                    audio = eleven_client.text_to_speech.convert(
-                        text=full_script,
-                        voice_id=voice_id,
-                        model_id="eleven_multilingual_v2"
-                    )
-                    save(audio, "output/script.mp3")
+                    tts = gTTS(text=full_script, lang=lang_code[lang])
+                    tts.save("output/script.mp3")
 
                 st.success("TTS 완료!")
                 st.audio("output/script.mp3")
